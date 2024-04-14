@@ -26,7 +26,11 @@ struct sockaddr_in serveraddr;
 struct itimerval timer; 
 tcp_packet *sndpkt;
 tcp_packet *recvpkt;
-sigset_t sigmask;       
+sigset_t sigmask;
+
+packet_list * head = NULL; // defining the list of packets
+int lastACK = 0; // last ACK received
+int dupACK = 0; // duplicate ACK counter
 
 
 void resend_packets(int sig)
@@ -82,6 +86,7 @@ int main (int argc, char **argv)
     int next_seqno;
     char *hostname;
     char buffer[DATA_SIZE];
+    bzero(buffer, DATA_SIZE);
     FILE *fp;
 
     /* check command line arguments */
@@ -95,6 +100,42 @@ int main (int argc, char **argv)
     if (fp == NULL) {
         error(argv[3]);
     }
+
+    // size of file to determine num of packets
+    fseek(fp, 0, SEEK_END);
+    int file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    // storing the entire file as packets in an array for easy access later
+    int num_packets = file_size / DATA_SIZE;
+    if (file_size % DATA_SIZE != 0) { // if there is a remainder, add one more packet
+        num_packets++;
+    }
+    tcp_packet *packets[num_packets];
+    
+    // reading into the packets array
+    len = fread(buffer, 1, DATA_SIZE, fp);
+    int pktidx = 0;
+    while (len > 0) {
+        send_base = next_seqno;
+        next_seqno = send_base + len;
+        tcp_packet *pkt = make_packet(len);
+        memcpy(pkt->data, buffer, len);
+        pkt->hdr.seqno = send_base;
+        pkt->hdr.data_size = len;
+        packets[pktidx] = pkt;
+        pktidx++;
+        bzero(buffer, DATA_SIZE);
+        len = fread(buffer, 1, DATA_SIZE, fp);
+    }
+
+    // close the file
+    fclose(fp);
+
+    // printf("Number of packets: %d\n", num_packets);
+    // printf("File size: %d\n", file_size);
+    // printf("Last packet size: %d\n", packets[num_packets - 1]->hdr.data_size);
+    // printf("Count: %d\n", pktidx);
 
     /* socket: create the socket */
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
