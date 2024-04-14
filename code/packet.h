@@ -22,3 +22,15 @@ typedef struct {
 
 tcp_packet* make_packet(int seq);
 int get_data_size(tcp_packet *pkt);
+
+// making a list of packets
+typedef struct node {
+    tcp_packet* pkt;
+    struct node* next;
+} packet_list;
+
+// function push to add a packet to the list
+void push(packet_list** head_ref, tcp_packet* pkt);
+
+// function pop to remove the first packet from the list
+void pop(packet_list** head_ref);
