@@ -22,6 +22,9 @@
 tcp_packet *recvpkt;
 tcp_packet *sndpkt;
 
+packet_list * head = NULL; // defining the buffer as a list
+int ackno = 0; // the expected sequence number
+
 int main(int argc, char **argv) {
     int sockfd; /* socket */
     int portno; /* port to listen on */
@@ -96,7 +99,7 @@ int main(int argc, char **argv) {
         recvpkt = (tcp_packet *) buffer;
         assert(get_data_size(recvpkt) <= DATA_SIZE);
         if ( recvpkt->hdr.data_size == 0) {
-            //VLOG(INFO, "End Of File has been reached");
+            VLOG(INFO, "End Of File has been reached");
             fclose(fp);
             break;
         }
@@ -106,10 +109,61 @@ int main(int argc, char **argv) {
         gettimeofday(&tp, NULL);
         VLOG(DEBUG, "%lu, %d, %d", tp.tv_sec, recvpkt->hdr.data_size, recvpkt->hdr.seqno);
 
-        fseek(fp, recvpkt->hdr.seqno, SEEK_SET);
-        fwrite(recvpkt->data, 1, recvpkt->hdr.data_size, fp);
+        // case 1: the packet is the expected packet - check if anything buffered becomes in order with the new packet, and write to file, send cumulative ack
+        if (recvpkt->hdr.seqno == ackno) {
+            // write to file
+            fseek(fp, recvpkt->hdr.seqno, SEEK_SET);
+            fwrite(recvpkt->data, 1, recvpkt->hdr.data_size, fp);
+            ackno += recvpkt->hdr.data_size;
+            // check if anything buffered becomes in order
+            packet_list * curr = head;
+            // printf("check1\n");
+            while (curr != NULL) {
+                if (curr->pkt->hdr.seqno == ackno) {
+                    // write to file
+                    fseek(fp, curr->pkt->hdr.seqno, SEEK_SET);
+                    fwrite(curr->pkt->data, 1, curr->pkt->hdr.data_size, fp);
+                    ackno += curr->pkt->hdr.data_size;
+                    // printf("check2\n");
+                    pop_curr(&head, &curr); // remove from the buffer, curr now points to the next element so no update required
+                    // printf("check3\n");
+                } 
+                else {
+                    // printf("check4\n");
+                    curr = curr->next;
+                    // printf("check5\n");
+                }
+            }
+        }
+        
+        // case 2: the packet is not the expected packet - buffer the packet if not already buffered, send the ack for the packet we are expecting
+        else {
+
+            // if the packet arrives out of order but is not already cummulatively acked
+            if (recvpkt->hdr.seqno > ackno) {
+                // buffer the packet if not already buffered
+                packet_list * curr = head;
+                while (curr != NULL) {
+                    if (curr->pkt->hdr.seqno == recvpkt->hdr.seqno) {
+                        break;
+                    }
+                    curr = curr->next;
+                }
+                if (curr == NULL) {
+                    // buffer the packet
+                    push(&head, recvpkt);
+                    printf("BUFFERED %d\n", recvpkt->hdr.seqno);
+                }
+            }
+            else { // if the packet is already cumulatively acked
+                printf("DUPLICATE %d\n", recvpkt->hdr.seqno);
+            }
+        }
+
+        // send cumulative ack
+        printf("ACK %d\n", ackno);
         sndpkt = make_packet(0);
-        sndpkt->hdr.ackno = recvpkt->hdr.seqno + recvpkt->hdr.data_size;
+        sndpkt->hdr.ackno = ackno;
         sndpkt->hdr.ctr_flags = ACK;
         if (sendto(sockfd, sndpkt, TCP_HDR_SIZE, 0, 
                 (struct sockaddr *) &clientaddr, clientlen) < 0) {
