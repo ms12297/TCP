@@ -222,6 +222,26 @@ int main (int argc, char **argv)
             printf("Received ACK: %d\n", recvpkt->hdr.ackno);
             assert(get_data_size(recvpkt) <= DATA_SIZE);
 
+            if (recvpkt->hdr.ackno == lastACK) {
+                dupACK++;
+            } else {
+                lastACK = recvpkt->hdr.ackno;
+                dupACK = 0;
+            }
+
+            if (dupACK == 3) {
+                VLOG(INFO, "Triple duplicate ACK received");
+                stop_timer(); 
+                start_timer(); // restart the timer
+                sndpkt = head->pkt; // resend the send_base packet
+                if(sendto(sockfd, sndpkt, TCP_HDR_SIZE + get_data_size(sndpkt), 0, 
+                            ( const struct sockaddr *)&serveraddr, serverlen) < 0)
+                {
+                    error("sendto");
+                }
+                dupACK = 0;
+            }
+            
             // while the window is not empty and the ACK number is greater than the sequence number of the first packet in the window
             // i.e. the ACK addresses an in-flight packet:
             while (head != NULL && recvpkt->hdr.ackno >= head->pkt->hdr.seqno + head->pkt->hdr.data_size)
