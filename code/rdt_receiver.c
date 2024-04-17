@@ -150,9 +150,11 @@ int main(int argc, char **argv) {
                     curr = curr->next;
                 }
                 if (curr == NULL) {
-                    // buffer the packet
-                    push(&head, recvpkt);
-                    printf("BUFFERED %d\n", recvpkt->hdr.seqno);
+                    // making the new packet to buffer
+                    tcp_packet * newpkt = make_packet(recvpkt->hdr.data_size);
+                    memcpy(newpkt, recvpkt, TCP_HDR_SIZE + recvpkt->hdr.data_size);
+                    push(&head, newpkt);
+                    printf("BUFFERED %d\n", newpkt->hdr.seqno);
                 }
             }
             else { // if the packet is already cumulatively acked
