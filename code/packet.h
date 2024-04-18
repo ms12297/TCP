@@ -34,3 +34,6 @@ void push(packet_list** head_ref, tcp_packet* pkt);
 
 // function pop to remove the first packet from the list
 void pop(packet_list** head_ref);
+
+// function to remove a specific packet from the list
+void pop_curr(packet_list** head_ref, packet_list** curr);
