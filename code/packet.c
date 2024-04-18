@@ -47,3 +47,21 @@ void pop(packet_list** head_ref)
     *head_ref = temp->next;
     free(temp);
 }
+
+// function to remove a specific packet from the list
+void pop_curr(packet_list** head_ref, packet_list** curr)
+{
+    packet_list* temp = *head_ref;
+    if (temp == *curr) {
+        *head_ref = temp->next;
+        free(temp);
+        *curr = *head_ref; // update curr to the next element (or NULL if the list is empty)
+        return;
+    }
+    while (temp != NULL && temp->next != *curr) {
+        temp = temp->next;
+    }
+    temp->next = (*curr)->next;
+    free(*curr);
+    *curr = temp->next; // update curr to the next element
+}
