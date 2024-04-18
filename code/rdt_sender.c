@@ -43,7 +43,7 @@ void resend_packets(int sig)
         // assignment description specifies we only resend the base so:
         sndpkt = head->pkt;
 
-        VLOG(INFO, "Timeout happened for packet %d", sndpkt->hdr.seqno);
+        VLOG(INFO, "Timeout happened for packet %d, sending again", sndpkt->hdr.seqno);
         if(sendto(sockfd, sndpkt, TCP_HDR_SIZE + get_data_size(sndpkt), 0, 
                     ( const struct sockaddr *)&serveraddr, serverlen) < 0)
         {
@@ -230,10 +230,10 @@ int main (int argc, char **argv)
             }
 
             if (dupACK == 3) {
-                VLOG(INFO, "Triple duplicate ACK received");
                 stop_timer(); 
                 start_timer(); // restart the timer
                 sndpkt = head->pkt; // resend the send_base packet
+                VLOG(INFO, "Triple duplicate ACK received for packet %d, sending again", sndpkt->hdr.seqno);
                 if(sendto(sockfd, sndpkt, TCP_HDR_SIZE + get_data_size(sndpkt), 0, 
                             ( const struct sockaddr *)&serveraddr, serverlen) < 0)
                 {
