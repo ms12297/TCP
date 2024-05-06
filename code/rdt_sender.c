@@ -19,7 +19,9 @@
 
 int next_seqno=0;
 int send_base=0;
-int window_size = 10;
+int window_size = 1; // tied to cwnd, to control sliding window
+float cwnd = 1;
+int ssthresh = 64;
 int pktidx = 0; // counter to track the packets in the packets array
 
 // RTO calculation values
@@ -38,11 +40,64 @@ struct sockaddr_in serveraddr;
 struct itimerval timer; 
 tcp_packet *sndpkt;
 tcp_packet *recvpkt;
-sigset_t sigmask;       
+sigset_t sigmask;
 
 packet_list * head = NULL; // defining the list of packets
 int lastACK = 0; // last ACK received
 int dupACK = 0; // duplicate ACK counter
+
+
+void mult_dec() // function to reset the congestion control params after timeout or 3 dupACKs
+{
+    // ssthresh becomes max(cwnd/2, 2) and cwnd becomes 1, taking floor of cwnd in calculations with cast to int
+    ssthresh = (((int)cwnd / 2) > 2 ? ((int)cwnd / 2) : 2);
+    cwnd = 1;
+    window_size = 0; // no space in the window
+    
+    // remove all packets except the first one and update the pktidx
+    if (head != NULL) {
+        packet_list * curr = head->next;
+        while (curr != NULL) {
+            pop_curr(&head, &curr);
+            pktidx--; // to allow the packets to be sent again
+        }
+        // updating new start time and retranmission flag for the first packet
+        head->retrans = 1;
+        gettimeofday(&head->start, NULL);
+    }
+
+}
+
+
+void start_timer()
+{
+    sigprocmask(SIG_UNBLOCK, &sigmask, NULL);
+    setitimer(ITIMER_REAL, &timer, NULL);
+}
+
+
+void stop_timer()
+{
+    sigprocmask(SIG_BLOCK, &sigmask, NULL);
+}
+
+
+/*
+ * init_timer: Initialize timer
+ * delay: delay in milliseconds
+ * sig_handler: signal handler function for re-sending unACKed packets
+ */
+void init_timer(int delay, void (*sig_handler)(int)) 
+{
+    signal(SIGALRM, sig_handler);
+    timer.it_interval.tv_sec = delay / 1000;    // sets an interval of the timer
+    timer.it_interval.tv_usec = (delay % 1000) * 1000;  
+    timer.it_value.tv_sec = delay / 1000;       // sets an initial value
+    timer.it_value.tv_usec = (delay % 1000) * 1000;
+
+    sigemptyset(&sigmask);
+    sigaddset(&sigmask, SIGALRM);
+}
 
 
 void resend_packets(int sig)
@@ -77,6 +132,8 @@ void resend_packets(int sig)
             }
         }
 
+        mult_dec(); // update congestion control parameters i.e. cwnd and ssthresh
+
         VLOG(INFO, "Timeout happened for packet %d, sending again", sndpkt->hdr.seqno);
         if(sendto(sockfd, sndpkt, TCP_HDR_SIZE + get_data_size(sndpkt), 0, 
                     ( const struct sockaddr *)&serveraddr, serverlen) < 0)
@@ -86,37 +143,6 @@ void resend_packets(int sig)
 
         dupACK = 0;
     }
-}
-
-
-void start_timer()
-{
-    sigprocmask(SIG_UNBLOCK, &sigmask, NULL);
-    setitimer(ITIMER_REAL, &timer, NULL);
-}
-
-
-void stop_timer()
-{
-    sigprocmask(SIG_BLOCK, &sigmask, NULL);
-}
-
-
-/*
- * init_timer: Initialize timer
- * delay: delay in milliseconds
- * sig_handler: signal handler function for re-sending unACKed packets
- */
-void init_timer(int delay, void (*sig_handler)(int)) 
-{
-    signal(SIGALRM, sig_handler);
-    timer.it_interval.tv_sec = delay / 1000;    // sets an interval of the timer
-    timer.it_interval.tv_usec = (delay % 1000) * 1000;  
-    timer.it_value.tv_sec = delay / 1000;       // sets an initial value
-    timer.it_value.tv_usec = (delay % 1000) * 1000;
-
-    sigemptyset(&sigmask);
-    sigaddset(&sigmask, SIGALRM);
 }
 
 
@@ -177,6 +203,12 @@ int main (int argc, char **argv)
     if (fp == NULL) {
         error(argv[3]);
     }
+
+    // we create CWND.csv file to store the congestion control parameters
+    FILE *fp_csv;
+    fp_csv = fopen("CWND.csv", "w");
+    fclose(fp_csv);
+
 
     // size of file to determine num of packets
     fseek(fp, 0, SEEK_END);
@@ -295,6 +327,17 @@ int main (int argc, char **argv)
             // update rto based on the received packet
             update_rto();
 
+            // updating congestion control parameters
+            if (cwnd < ssthresh) {
+                cwnd = cwnd + 1;
+            }
+            else {
+                cwnd = cwnd + 1.0/((int)cwnd); // floor(cwnd) to make sure that cwnd increases by 1 only when window_size is fully sent
+                if (cwnd == (int)cwnd) { // if cwnd is a whole integer, then we may increase the window size
+                    window_size++;
+                }
+            }
+
             if (recvpkt->hdr.ackno == lastACK) {
                 dupACK++;
             } else {
@@ -303,6 +346,9 @@ int main (int argc, char **argv)
             }
 
             if (dupACK == 3) {
+
+                mult_dec(); // update congestion control parameters i.e. cwnd and ssthresh
+
                 stop_timer(); 
                 start_timer(); // restart the timer
                 sndpkt = head->pkt; // resend the send_base packet
@@ -336,6 +382,4 @@ int main (int argc, char **argv)
     return 0;
 
 }
-
-
 
