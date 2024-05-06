@@ -20,6 +20,16 @@
 int next_seqno=0;
 int send_base=0;
 int window_size = 10;
+int pktidx = 0; // counter to track the packets in the packets array
+
+// RTO calculation values
+float alpha = 0.125;
+float beta = 0.25;
+float rtt = 0;
+float estrtt = 0;
+float devrtt = 0;
+int rto = 3000; // 3 seconds
+int max_rto = 240000; // 240 seconds, limit for exponential backoff
 
 int sockfd, serverlen;
 struct sockaddr_in serveraddr;
@@ -86,6 +96,43 @@ void init_timer(int delay, void (*sig_handler)(int))
 }
 
 
+void update_rto() // function to update rto
+{
+    // set start and end based on which packet matches the ack_to field of the received packet
+    struct timeval start, end;
+    packet_list * curr = head;
+    while (curr != NULL) {
+        // so if the packet is the one that the ack is for and it has not been retransmitted yet
+        if (curr->pkt->hdr.seqno == recvpkt->hdr.ack_to && curr->retrans == 0) {
+            start = curr->start;
+            gettimeofday(&end, NULL);
+            break;
+        }
+        curr = curr->next;
+    }
+
+    if (curr == NULL) {
+        return;
+    }
+
+    // implementing rto calculation from slides
+    rtt = (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_usec - start.tv_usec) / 1000.0; // sample rtt in milliseconds
+    estrtt = (1 - alpha) * estrtt + alpha * rtt;
+    devrtt = (1 - beta) * devrtt + beta * abs(rtt - estrtt);
+    rto = (int)(estrtt + 4 * devrtt);
+
+    // bounding rto
+    if (rto < 3000) {
+        rto = 3000;
+    }
+    else if (rto > max_rto) {
+        rto = max_rto;
+    }
+
+    init_timer(rto, resend_packets); // initializing the timer with the new rto as the delay
+}
+
+
 int main (int argc, char **argv)
 {
     int portno, len;
@@ -121,7 +168,6 @@ int main (int argc, char **argv)
     
     // reading into the packets array
     len = fread(buffer, 1, DATA_SIZE, fp);
-    int pktidx = 0;
     while (len > 0) {
         send_base = next_seqno;
         next_seqno = send_base + len;
@@ -167,7 +213,7 @@ int main (int argc, char **argv)
 
     //Stop and wait protocol
 
-    init_timer(RETRY, resend_packets);
+    init_timer(rto, resend_packets); // initializing the timer with the initial rto as the delay
     next_seqno = 0;
     pktidx = 0;
     int restart = 1; // flag to restart the timer
@@ -222,6 +268,9 @@ int main (int argc, char **argv)
             printf("Received ACK: %d\n", recvpkt->hdr.ackno);
             assert(get_data_size(recvpkt) <= DATA_SIZE);
 
+            // update rto based on the received packet
+            update_rto();
+
             if (recvpkt->hdr.ackno == lastACK) {
                 dupACK++;
             } else {
@@ -263,6 +312,3 @@ int main (int argc, char **argv)
     return 0;
 
 }
-
-
-
