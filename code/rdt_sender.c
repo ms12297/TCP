@@ -30,6 +30,8 @@ float estrtt = 0;
 float devrtt = 0;
 int rto = 3000; // 3 seconds
 int max_rto = 240000; // 240 seconds, limit for exponential backoff
+int succ_to = 0; // flag for successive timeouts
+int succ_to_seqno = 0; // sequence number of the successive timeout pkt
 
 int sockfd, serverlen;
 struct sockaddr_in serveraddr;
@@ -52,6 +54,28 @@ void resend_packets(int sig)
 
         // assignment description specifies we only resend the base so:
         sndpkt = head->pkt;
+
+        // exponential backoff for congestion control
+        // case1: initially, no timeout has occurred before
+        if (succ_to == 0) {
+            succ_to = 1;
+            succ_to_seqno = sndpkt->hdr.seqno;
+
+        }
+        else { // case2: timeout has occurred before
+            // case1: timed out packet is succ_to_seqno
+            // case2: timed out packet is not succ_to_seqno
+            if (sndpkt->hdr.seqno == succ_to_seqno) {
+                rto *= 2; // doubling the rto
+                if (rto > max_rto) { // bounding the rto
+                    rto = max_rto;
+                }
+                init_timer(rto, resend_packets); // initializing the timer with the new rto as the delay
+            }
+            else {
+                succ_to_seqno = sndpkt->hdr.seqno;
+            }
+        }
 
         VLOG(INFO, "Timeout happened for packet %d, sending again", sndpkt->hdr.seqno);
         if(sendto(sockfd, sndpkt, TCP_HDR_SIZE + get_data_size(sndpkt), 0, 
@@ -312,3 +336,6 @@ int main (int argc, char **argv)
     return 0;
 
 }
+
+
+
