@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <sys/time.h>
 #include"packet.h"
 
 static tcp_packet zero_packet = {.hdr={0}};
@@ -24,7 +25,9 @@ int get_data_size(tcp_packet *pkt)
 void push(packet_list** head_ref, tcp_packet* pkt)
 {
     packet_list* new_node = (packet_list*) malloc(sizeof(packet_list));
-    new_node->pkt = pkt;
+    new_node->pkt = pkt; // set the packet
+    gettimeofday(&new_node->start, NULL); // set the start time
+    new_node->retrans = 0; // initially packet is not retransmitted
     new_node->next = NULL;
 
     if (*head_ref == NULL) {
