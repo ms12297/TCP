@@ -166,6 +166,7 @@ int main(int argc, char **argv) {
         printf("ACK %d\n", ackno);
         sndpkt = make_packet(0);
         sndpkt->hdr.ackno = ackno;
+        sndpkt->hdr.ack_to = recvpkt->hdr.seqno;
         sndpkt->hdr.ctr_flags = ACK;
         if (sendto(sockfd, sndpkt, TCP_HDR_SIZE, 0, 
                 (struct sockaddr *) &clientaddr, clientlen) < 0) {
