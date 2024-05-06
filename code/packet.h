@@ -8,6 +8,7 @@ typedef struct {
     int ackno;
     int ctr_flags;
     int data_size;
+    int ack_to; // ack to which seqno
 }tcp_header;
 
 #define MSS_SIZE    1500
@@ -25,7 +26,9 @@ int get_data_size(tcp_packet *pkt);
 
 // making a list of packets
 typedef struct node {
-    tcp_packet* pkt;
+    tcp_packet* pkt; // the packet
+    struct timeval start; // start time of the packet
+    int retrans; // bool to check if the packet is retransmitted
     struct node* next;
 } packet_list;
 
