@@ -34,6 +34,7 @@ int rto = 3000; // 3 seconds
 int max_rto = 240000; // 240 seconds, limit for exponential backoff
 int succ_to = 0; // flag for successive timeouts
 int succ_to_seqno = 0; // sequence number of the successive timeout pkt
+struct timeval init; // initial time for the program
 
 int sockfd, serverlen;
 struct sockaddr_in serveraddr;
@@ -47,12 +48,28 @@ int lastACK = 0; // last ACK received
 int dupACK = 0; // duplicate ACK counter
 
 
+void update_csv() // function to update the csv file with the congestion control parameters
+{
+    FILE *fp;
+    fp = fopen("CWND.csv", "a");
+    // get time difference from the initial time
+    struct timeval curr;
+    gettimeofday(&curr, NULL);
+    float time_diff = (curr.tv_sec - init.tv_sec) * 1000.0 + (curr.tv_usec - init.tv_usec) / 1000.0; // time diff in milliseconds
+    time_diff /= 1000.0; // time diff in seconds
+    fprintf(fp, "%f, %f, %d\n", time_diff, cwnd, ssthresh);
+    fclose(fp);
+}
+
+
 void mult_dec() // function to reset the congestion control params after timeout or 3 dupACKs
 {
     // ssthresh becomes max(cwnd/2, 2) and cwnd becomes 1, taking floor of cwnd in calculations with cast to int
     ssthresh = (((int)cwnd / 2) > 2 ? ((int)cwnd / 2) : 2);
     cwnd = 1;
     window_size = 0; // no space in the window
+
+    update_csv(); // update csv file with the new congestion control parameters
     
     // remove all packets except the first one and update the pktidx
     if (head != NULL) {
@@ -274,6 +291,8 @@ int main (int argc, char **argv)
     pktidx = 0;
     int restart = 1; // flag to restart the timer
 
+    gettimeofday(&init, NULL); // initial time for the program
+
     while (1)
     {
         //Wait for ACK
@@ -337,6 +356,9 @@ int main (int argc, char **argv)
                     window_size++;
                 }
             }
+
+            update_csv(); // updating the csv file with the congestion control parameters
+
 
             if (recvpkt->hdr.ackno == lastACK) {
                 dupACK++;
